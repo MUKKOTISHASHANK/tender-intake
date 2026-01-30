@@ -4,8 +4,26 @@ import path from "path";
 import fs from "fs";
 import { analyze } from "../services/analysisService.js";
 import { loadKeywordsFromExcel } from "../services/keywordRulesService.js";
-import { extractTender } from "../services/tenderExtractionService.js";
 import { extractArtifactsFromPdf } from "../services/artifactExtractionService.js";
+import { extractRfpEvaluation } from "../services/rfpEvaluationService.js";
+import { extractTenderMatrix } from "../services/tenderMatrixExtractionService.js";
+
+// Optional import for tender extraction service - will be loaded dynamically
+let extractTender = null;
+let tenderServiceLoaded = false;
+
+async function loadTenderService() {
+  if (tenderServiceLoaded) return extractTender;
+  tenderServiceLoaded = true;
+  try {
+    const tenderService = await import("../services/tenderExtractionService.js");
+    extractTender = tenderService.extractTender;
+    return extractTender;
+  } catch (e) {
+    console.warn("⚠️  tenderExtractionService.js not found. /extract endpoint will be disabled.");
+    return null;
+  }
+}
 
 const router = Router();
 
@@ -47,6 +65,18 @@ const upload = multer({
 
 // POST /extract
 router.post("/extract", upload.single("document"), async (req, res) => {
+  // Try to load the service if not already loaded
+  if (!extractTender) {
+    await loadTenderService();
+  }
+  
+  if (!extractTender) {
+    return res.status(503).json({
+      success: false,
+      error: "Tender extraction service is not available. tenderExtractionService.js not found.",
+    });
+  }
+
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -244,6 +274,117 @@ router.post("/extract-artifacts", upload.single("document"), async (req, res) =>
     return res.status(500).json({
       success: false,
       error: error.message || "An error occurred during artifact extraction",
+    });
+  }
+});
+
+// POST /evaluate-rfp
+router.post("/evaluate-rfp", upload.single("document"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file uploaded. Please provide a 'document' file.",
+      });
+    }
+
+    const department = req.body.department || req.body.Department || req.body.dept || req.body.departmentName || "Unknown";
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    
+    if (![".pdf", ".docx", ".doc", ".txt"].includes(ext)) {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({
+        success: false,
+        error: "Unsupported file format. Supported formats: .pdf, .docx, .doc, .txt",
+      });
+    }
+
+    console.log(`\n📄 Extracting RFP evaluation data from: ${req.file.originalname}`);
+    console.log(`🏢 Department: ${department}`);
+
+    const result = await extractRfpEvaluation({
+      filePath: req.file.path,
+      department,
+      originalFileName: req.file.originalname,
+    });
+
+    console.log(`✓ RFP evaluation extraction complete`);
+
+    // Clean up uploaded file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    return res.json({
+      success: true,
+      filename: req.file.originalname,
+      department,
+      evaluation: result,
+    });
+  } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    console.error("RFP evaluation error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "An error occurred during RFP evaluation extraction",
+    });
+  }
+});
+
+// POST /extract-matrix
+router.post("/extract-matrix", upload.single("document"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file uploaded. Please provide a 'document' file.",
+      });
+    }
+
+    const tenderId = req.body.tenderId || req.body.tender_id || null;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    
+    if (![".pdf", ".docx", ".doc", ".txt"].includes(ext)) {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({
+        success: false,
+        error: "Unsupported file format. Supported formats: .pdf, .docx, .doc, .txt",
+      });
+    }
+
+    console.log(`\n📄 Extracting tender matrix from: ${req.file.originalname}`);
+    console.log(`📋 Tender ID: ${tenderId || "Not provided"}`);
+
+    const result = await extractTenderMatrix(
+      req.file.path,
+      tenderId,
+      req.file.originalname
+    );
+
+    console.log(`✓ Matrix extraction complete. Found ${result.length} companies.`);
+
+    // Clean up uploaded file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    return res.json(result);
+  } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    console.error("Matrix extraction error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "An error occurred during matrix extraction",
     });
   }
 });
