@@ -13,6 +13,7 @@ app.listen(PORT, HOST, () => {
   console.log(`   Listening on http://${HOST}:${PORT}`);
   console.log(`   Health check: http://${HOST}:${PORT}/health`);
   console.log(`   Extract endpoint: POST http://${HOST}:${PORT}/extract`);
+  console.log(`   Extract Artifacts endpoint: POST http://${HOST}:${PORT}/extract-artifacts`);
   console.log(`   Analyze endpoint: POST http://${HOST}:${PORT}/analyze`);
   console.log(`   Categories endpoint: GET http://${HOST}:${PORT}/categories`);
   console.log(`   Keywords endpoint: GET http://${HOST}:${PORT}/keywords/:category`);

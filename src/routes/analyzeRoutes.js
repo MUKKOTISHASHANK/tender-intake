@@ -5,6 +5,7 @@ import fs from "fs";
 import { analyze } from "../services/analysisService.js";
 import { loadKeywordsFromExcel } from "../services/keywordRulesService.js";
 import { extractTender } from "../services/tenderExtractionService.js";
+import { extractArtifactsFromPdf } from "../services/artifactExtractionService.js";
 
 const router = Router();
 
@@ -193,6 +194,56 @@ router.get("/keywords/:category", (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message,
+    });
+  }
+});
+
+// POST /extract-artifacts
+router.post("/extract-artifacts", upload.single("document"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file uploaded. Please provide a 'document' file.",
+      });
+    }
+
+    // Support both PDF and DOCX
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    if (![".pdf", ".docx", ".doc"].includes(ext)) {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({
+        success: false,
+        error: "Only PDF and DOCX files are supported for artifact extraction.",
+      });
+    }
+
+    const departmentName = req.body.departmentName || req.body.department || null;
+
+    console.log(`\n📄 Extracting artifacts from: ${req.file.originalname} (${ext})`);
+    console.log(`🏢 Department: ${departmentName || "Not provided"}`);
+
+    const result = await extractArtifactsFromPdf(req.file.path, departmentName, req.file.originalname);
+
+    console.log(`✓ Artifact extraction complete`);
+
+    // Clean up uploaded file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    return res.json(result);
+  } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    console.error("Artifact extraction error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "An error occurred during artifact extraction",
     });
   }
 });
