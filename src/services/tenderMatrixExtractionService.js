@@ -195,7 +195,11 @@ function findMatrixSection(text) {
   const matrixLines = [];
   let inMatrix = false;
   let headerFound = false;
+  let bestMatchStart = -1;
+  let bestMatchEnd = -1;
+  let bestMatchScore = 0;
 
+  // First pass: Look for clear matrix headers
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].toLowerCase();
     
@@ -204,12 +208,13 @@ function findMatrixSection(text) {
       const hasCompanyHeader = COMPANY_NAME_PATTERNS.some(p => p.test(line));
       const hasRatingHeader = RATING_PATTERNS.some(p => p.test(line));
       const hasWeightageHeader = WEIGHTAGE_PATTERNS.some(p => p.test(line));
+      const hasSubcategory = SUBCATEGORY_PATTERNS.some(p => p.test(line));
       
-      if (hasCompanyHeader || hasRatingHeader || hasWeightageHeader) {
+      if (hasCompanyHeader || hasRatingHeader || hasWeightageHeader || hasSubcategory) {
         inMatrix = true;
         headerFound = true;
         // Include some lines before for context
-        const startIdx = Math.max(0, i - 5);
+        const startIdx = Math.max(0, i - 10);
         matrixLines.push(...lines.slice(startIdx, i));
       }
     }
@@ -233,42 +238,103 @@ function findMatrixSection(text) {
     }
   }
 
-  // If no matrix found, try to find table-like structures
-  if (matrixLines.length < 20) {
-    // Look for lines with multiple numbers (likely ratings/weightages)
+  // Second pass: Look for table-like structures with multiple numbers (more flexible)
+  if (matrixLines.length < 50) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const numbers = line.match(/\d+\.?\d*/g);
-      if (numbers && numbers.length >= 3) {
-        // Check if line contains rating/weightage keywords
-        const lowerLine = line.toLowerCase();
-        if (RATING_PATTERNS.some(p => p.test(lowerLine)) ||
-            WEIGHTAGE_PATTERNS.some(p => p.test(lowerLine)) ||
-            SUBCATEGORY_PATTERNS.some(p => p.test(lowerLine))) {
-          const startIdx = Math.max(0, i - 10);
-          const endIdx = Math.min(lines.length, i + 100);
-          return lines.slice(startIdx, endIdx).join("\n");
+      const lowerLine = line.toLowerCase();
+      
+      // Score this line based on indicators
+      let score = 0;
+      if (numbers && numbers.length >= 3) score += 2;
+      if (RATING_PATTERNS.some(p => p.test(lowerLine))) score += 3;
+      if (WEIGHTAGE_PATTERNS.some(p => p.test(lowerLine))) score += 3;
+      if (SUBCATEGORY_PATTERNS.some(p => p.test(lowerLine))) score += 2;
+      if (COMPANY_NAME_PATTERNS.some(p => p.test(lowerLine))) score += 3;
+      
+      // Check for company names (uppercase words, common company patterns)
+      const hasCompanyName = /^[A-Z]{3,}(?:\s+[A-Z]{2,})*/.test(line.trim()) && 
+                             !/^(THE|AND|FOR|WITH|FROM|THIS|THAT)/.test(line.trim());
+      if (hasCompanyName && numbers && numbers.length >= 2) score += 2;
+      
+      if (score >= 3) {
+        const startIdx = Math.max(0, i - 15);
+        const endIdx = Math.min(lines.length, i + 150); // Increased window
+        const sectionSize = endIdx - startIdx;
+        
+        if (sectionSize > bestMatchScore) {
+          bestMatchStart = startIdx;
+          bestMatchEnd = endIdx;
+          bestMatchScore = sectionSize;
+        }
+      }
+    }
+    
+    if (bestMatchStart >= 0 && bestMatchEnd > bestMatchStart) {
+      return lines.slice(bestMatchStart, bestMatchEnd).join("\n");
+    }
+  }
+
+  // Third pass: If still nothing, look for sections with "evaluation", "matrix", "table", "rating"
+  if (matrixLines.length < 50) {
+    const evaluationKeywords = /evaluation|matrix|rating|score|weightage|assessment/i;
+    for (let i = 0; i < lines.length; i++) {
+      if (evaluationKeywords.test(lines[i])) {
+        const startIdx = Math.max(0, i - 10);
+        const endIdx = Math.min(lines.length, i + 200);
+        const section = lines.slice(startIdx, endIdx).join("\n");
+        // Check if this section has multiple numbers (likely a table)
+        const numberCount = (section.match(/\d+\.?\d*/g) || []).length;
+        if (numberCount >= 10) {
+          return section;
         }
       }
     }
   }
 
-  return matrixLines.length > 20 ? matrixLines.join("\n") : text.substring(0, 10000);
+  // Return found matrix or a larger chunk of text for AI to analyze
+  if (matrixLines.length > 20) {
+    return matrixLines.join("\n");
+  }
+  
+  // Fallback: Return larger sections (middle and end of document where tables usually are)
+  const midPoint = Math.floor(text.length / 2);
+  const endPoint = text.length;
+  const midSection = text.substring(Math.max(0, midPoint - 10000), midPoint + 10000);
+  const endSection = text.substring(Math.max(0, endPoint - 20000));
+  
+  // Return the section with more numbers (likely contains tables)
+  const midNumbers = (midSection.match(/\d+\.?\d*/g) || []).length;
+  const endNumbers = (endSection.match(/\d+\.?\d*/g) || []).length;
+  
+  return midNumbers > endNumbers ? midSection : endSection;
 }
 
 function extractRelevantSections(text) {
   // Find the matrix section using keywords
   const matrixSection = findMatrixSection(text);
   
-  // Also extract first 3000 chars (cover page, headers) and last 3000 chars (tables, appendices)
-  const introSection = text.substring(0, 3000);
-  const endSection = text.substring(Math.max(0, text.length - 3000));
+  // Also extract first 5000 chars (cover page, headers, company names) and last 10000 chars (tables, appendices, evaluation matrices)
+  const introSection = text.substring(0, 5000);
+  const endSection = text.substring(Math.max(0, text.length - 10000));
+  const midSection = text.substring(Math.floor(text.length / 2) - 5000, Math.floor(text.length / 2) + 5000);
   
-  // Combine sections
-  const combined = `${introSection}\n\n---MATRIX_SECTION---\n\n${matrixSection}\n\n---END_SECTION---\n\n${endSection}`;
+  // Combine sections - prioritize matrix section, but include context
+  let combined = `${introSection}\n\n---MATRIX_SECTION---\n\n${matrixSection}\n\n---MID_SECTION---\n\n${midSection}\n\n---END_SECTION---\n\n${endSection}`;
   
-  // Limit total size for speed (max 15000 chars)
-  return combined.length > 15000 ? combined.substring(0, 15000) + "\n[...truncated...]" : combined;
+  // Limit total size but be more generous (max 30000 chars for better extraction)
+  if (combined.length > 30000) {
+    // Prioritize matrix section
+    const matrixLength = matrixSection.length;
+    const remaining = 30000 - matrixLength - 2000; // Reserve space for separators
+    const introPart = introSection.substring(0, Math.floor(remaining * 0.3));
+    const midPart = midSection.substring(0, Math.floor(remaining * 0.3));
+    const endPart = endSection.substring(0, Math.floor(remaining * 0.4));
+    combined = `${introPart}\n\n---MATRIX_SECTION---\n\n${matrixSection}\n\n---MID_SECTION---\n\n${midPart}\n\n---END_SECTION---\n\n${endPart}`;
+  }
+  
+  return combined;
 }
 
 // -------------------- OLLAMA API --------------------
@@ -349,27 +415,40 @@ const OUTPUT_SCHEMA = `[
 ]`;
 
 // -------------------- SYSTEM PROMPT --------------------
-const SYSTEM_PROMPT = `You are a JSON extraction agent. Your ONLY job is to return a valid JSON array. Nothing else.
+const SYSTEM_PROMPT = `You are a Tender Evaluation Matrix Extraction Agent. Extract company evaluation data from tender documents.
 
-EXTRACTION TASK:
-Extract evaluation matrix data from tender documents. Find ALL companies and extract their ratings/weightages.
+YOUR TASK:
+1. Find ALL company names in the document (look in tables, headers, matrices, evaluation sections)
+2. For EACH company, extract their ratings and weightages from the evaluation matrix/table
+3. Return a JSON array with one object per company
+
+HOW TO FIND COMPANIES:
+- Look for table headers with company names (often in uppercase: EDRAKY, COGNIZANT, KAAR, etc.)
+- Look for columns in tables/matrices - each column usually represents one company
+- Company names might appear in: "Company Name" row, table headers, or column headers
+- Search the entire document - companies might be mentioned multiple times
+
+HOW TO EXTRACT DATA:
+- Find rows labeled "Overall Rating", "Final Rating", "Total Score", or similar
+- For each company column, extract the number in that row
+- Find "Weightage" rows and extract weightage values for each company
+- Find subcategory rows (Module Covered, Data Migration, etc.) and extract ratings/weightages
+- Look for tables with multiple columns - each column = one company
 
 REQUIRED OUTPUT FORMAT - MUST BE A JSON ARRAY:
 ${OUTPUT_SCHEMA}
 
 EXTRACTION RULES:
-1. Find ALL company names in the document (e.g., "EDRAKY", "COGNIZANT", "KAAR", "TYCONZ", "SOLTIUS")
-2. For each company, extract:
-   - Company Name (exact as shown)
-   - Overall Rating (number from "Overall Rating", "Final Rating", "Total Score" rows)
-   - Category-Level Weightage (number or null)
-   - Category-Level Rating (number or null)
-   - Subcategory Ratings with Weightage and Rating for each subcategory
-3. Use null for missing values (never guess)
-4. Convert symbols: ✓/✔ = 10 or 1, ✖/X = 0, ●/○ = null
-5. Numbers can be decimals (7.9, 8.8) or integers (10, 0)
+1. Extract ALL companies found (do not skip any)
+2. Use EXACT company names as they appear (case-sensitive)
+3. Extract Overall Rating from rating rows (numbers like 7.9, 8.8, 9.5)
+4. Extract Category-Level Weightage and Rating if present
+5. Extract Subcategory Ratings with Weightage and Rating for each subcategory
+6. Use null for missing values (never guess or invent)
+7. Convert symbols: ✓/✔ = 10, ✖/X = 0, ●/○ = null
+8. Numbers can be decimals (7.9, 8.8) or integers (10, 0.35)
 
-TERMINOLOGY MAPPING:
+TERMINOLOGY MAPPING (map similar terms to exact schema names):
 - "Module Coverage" → "Module Covered"
 - "Implementation Approach" → "Implementation Timeline / Consultants"
 - "Partner Capability" → "Partner Experience"
@@ -378,7 +457,9 @@ TERMINOLOGY MAPPING:
 CRITICAL OUTPUT REQUIREMENTS:
 - Your response MUST be a JSON array starting with [ and ending with ]
 - Return ONLY the JSON array, no markdown, no code blocks, no explanations
-- If you cannot find data, return an empty array: []
+- Include ALL companies you find - one object per company
+- If you find at least one company, return array with that data
+- Only return empty array [] if absolutely no company data exists in the document
 - DO NOT return an object {}, always return an array []`;
 
 // -------------------- MAIN EXTRACTION FUNCTION --------------------
@@ -402,30 +483,57 @@ export async function extractTenderMatrix(filePath, tenderId = null, originalFil
 
   // Step 3: Use AI to extract structured data
   console.log(`🤖 Extracting structured matrix data...`);
+  console.log(`📊 Relevant section preview (first 500 chars): ${relevantSection.substring(0, 500)}`);
+  console.log(`📊 Relevant section preview (last 500 chars): ${relevantSection.substring(Math.max(0, relevantSection.length - 500))}`);
   
-  const userPrompt = `Extract the evaluation matrix from this tender document.
+  const userPrompt = `Extract the evaluation matrix from this tender document. The document contains an evaluation matrix/table with company names, ratings, and weightages.
 
 Tender ID: ${tenderId || "Not provided"}
 
 DOCUMENT TEXT:
 ${relevantSection}
 
-TASK:
-1. Find ALL company names in the matrix/table
-2. For EACH company, extract:
-   - Company Name (exact spelling)
-   - Overall Rating (number from rating rows)
-   - Category-Level Weightage and Rating (if present)
-   - All Subcategory Ratings with Weightage and Rating
+TASK - Extract ALL companies and their evaluation data:
+1. Search for ALL company names in the document (look in headers, tables, matrices)
+   - Common company names might be: EDRAKY, COGNIZANT, KAAR, TYCONZ, SOLTIUS, or others
+   - Company names are usually in table headers or column headers
+   - Look for uppercase words that appear in multiple places
+
+2. For EACH company found, extract:
+   - Company Name (exact spelling as it appears)
+   - Overall Rating (look for "Overall Rating", "Final Rating", "Total Score" rows - extract the number for this company's column)
+   - Category-Level Weightage (if present in a weightage row)
+   - Category-Level Rating (if present in a rating row)
+   - All Subcategory Ratings:
+     * Module Covered
+     * Data Migration
+     * Organizational change management
+     * Post Implementation Support
+     * Custom Objects Considered (RICEF)
+     * Project Duration
+     * Implementation Timeline / Consultants
+     * Partner Experience
+     * Reference (>1 Million Dollar) - Public Service Domain
+     * Reference # 1 - GCC region
+     * Reference # 1 - Non-GCC region
+     For each subcategory, extract Weightage and Rating from the corresponding rows
 
 3. Return a JSON ARRAY with one object per company
 
-CRITICAL: 
-- Return ONLY a JSON array: [{"Company Name": "...", ...}, ...]
+IMPORTANT NOTES:
+- Look for tables with multiple columns (one per company)
+- Ratings are usually numbers (7.9, 8.8, 10, etc.)
+- Weightages are usually decimals (0.35, 0.05, etc.)
+- If a value is not found, use null
+- Convert symbols: ✓ or ✔ = 10, ✖ or X = 0, ● or ○ = null
+- Company names might be in different formats - extract exactly as shown
+
+CRITICAL OUTPUT REQUIREMENTS: 
+- Return ONLY a JSON array: [{"Company Name": "...", "Overall Rating": number, ...}, ...]
 - Start with [ and end with ]
-- Use null for missing values
-- Convert symbols: ✓=10, ✖=0, ●=null
-- If no companies found, return: []
+- Include ALL companies found in the document
+- If you find at least one company, return the array with that company's data
+- Only return empty array [] if absolutely no company data is found
 
 Your response must be ONLY the JSON array, nothing else.`;
 
@@ -454,35 +562,59 @@ Your response must be ONLY the JSON array, nothing else.`;
         console.log(`✅ Successfully parsed JSON array with ${result.length} items`);
         break;
       } else if (Array.isArray(result) && result.length === 0) {
-        console.warn("⚠️  Parsed empty array, retrying with more explicit prompt...");
+        console.warn("⚠️  Parsed empty array, retrying with more document content and explicit prompt...");
         parseAttempts++;
         if (parseAttempts < maxParseAttempts) {
-          // More explicit prompt for retry
-          const retryPrompt = `Extract companies and ratings from this document. Return JSON array ONLY.
+          // Use more of the document and more explicit prompt
+          const extendedSection = normalizedText.length > 50000 
+            ? normalizedText.substring(Math.max(0, normalizedText.length - 50000)) // Last 50k chars
+            : normalizedText;
+          
+          const retryPrompt = `Extract companies and ratings from this tender evaluation document. 
 
-Document excerpt:
-${relevantSection.substring(0, 10000)}
+The document contains an evaluation matrix/table. Look carefully for:
+- Table headers with company names (often uppercase words like EDRAKY, COGNIZANT, KAAR, TYCONZ, SOLTIUS)
+- Rows with "Overall Rating", "Rating", "Weightage" labels
+- Numbers in columns (each column = one company)
 
-Required format - MUST be an array:
+Document content:
+${extendedSection.substring(0, 40000)}
+
+Required output format - MUST be a JSON array:
 [
   {
-    "Company Name": "COMPANY_NAME_HERE",
+    "Company Name": "EXACT_COMPANY_NAME_FROM_DOCUMENT",
     "Overall Rating": 7.9,
     "Category-Level Weightage": null,
     "Category-Level Rating": 7.9,
     "Subcategory Ratings": {
       "Module Covered": {"Weightage": 0.35, "Rating": 10},
       "Data Migration": {"Weightage": 0.05, "Rating": 10},
-      ...
+      "Organizational change management": {"Weightage": 0.02, "Rating": 0},
+      "Post Implementation Support": {"Weightage": 0.03, "Rating": 10},
+      "Custom Objects Considered (RICEF)": {"Weightage": 0.15, "Rating": 5},
+      "Project Duration": {"Weightage": 0.05, "Rating": 10},
+      "Implementation Timeline / Consultants": {"Weightage": 0.20, "Rating": 8.33},
+      "Partner Experience": {"Weightage": 0.10, "Rating": 7.22},
+      "Reference (>1 Million Dollar) - Public Service Domain": {"Weightage": 0.05, "Rating": 20},
+      "Reference # 1 - GCC region": {"Weightage": null, "Rating": 0},
+      "Reference # 1 - Non-GCC region": {"Weightage": null, "Rating": 10}
     }
   }
 ]
+
+INSTRUCTIONS:
+1. Search the document for company names in tables/headers
+2. For each company, find their column in the evaluation table
+3. Extract ratings and weightages from the corresponding rows
+4. Return JSON array with ALL companies found
+5. Use null for missing values
 
 Return ONLY the JSON array, starting with [ and ending with ].`;
           rawResponse = await ollamaChat({
             model: MODEL,
             messages: [
-              { role: "system", content: "You are a JSON extraction tool. Return ONLY a valid JSON array. Start with [ and end with ]. No other text." },
+              { role: "system", content: "Extract evaluation matrix data. Return ONLY a valid JSON array. Start with [ and end with ]. Include ALL companies found." },
               { role: "user", content: retryPrompt },
             ],
             temperature: 0,

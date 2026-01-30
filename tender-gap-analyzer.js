@@ -17,6 +17,7 @@ app.listen(PORT, HOST, () => {
   console.log(`   Extract Matrix endpoint: POST http://${HOST}:${PORT}/extract-matrix`);
   console.log(`   Analyze endpoint: POST http://${HOST}:${PORT}/analyze`);
   console.log(`   Evaluate RFP endpoint: POST http://${HOST}:${PORT}/evaluate-rfp`);
+  console.log(`   Pre-Bid Queries endpoint: POST http://${HOST}:${PORT}/pre-bid-queries/analyze`);
   console.log(`   Categories endpoint: GET http://${HOST}:${PORT}/categories`);
   console.log(`   Keywords endpoint: GET http://${HOST}:${PORT}/keywords/:category`);
   console.log("");
