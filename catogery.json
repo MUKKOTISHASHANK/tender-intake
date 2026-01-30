@@ -1,0 +1,59 @@
+[
+    {
+      "department": "City Violation / Enforcement",
+      "categories": ["SERVICES", "SUPPLIES"]
+    },
+    {
+      "department": "Administration",
+      "categories": ["CONSULTANCY", "SERVICES", "SUPPLIES"]
+    },
+    {
+      "department": "Maintenance",
+      "categories": ["SERVICES", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "Parking Management",
+      "categories": ["SERVICES", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "Landscape & Irrigation",
+      "categories": ["SERVICES", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "Waste Management",
+      "categories": ["SERVICES", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "Citizen-Centric Services",
+      "categories": ["CONSULTANCY", "SERVICES", "SUPPLIES"]
+    },
+    {
+      "department": "Legal",
+      "categories": ["CONSULTANCY", "SERVICES"]
+    },
+    {
+      "department": "Procurement",
+      "categories": ["CONSULTANCY", "SERVICES", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "Roads & Construction",
+      "categories": ["CONSULTANCY", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "Tolls Management",
+      "categories": ["SERVICES", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "HR",
+      "categories": ["CONSULTANCY", "SERVICES", "SUPPLIES"]
+    },
+    {
+      "department": "Water Management",
+      "categories": ["CONSULTANCY", "SERVICES", "SUPPLIES", "WORKS"]
+    },
+    {
+      "department": "Other Departments",
+      "categories": ["CONSULTANCY", "SERVICES", "SUPPLIES", "WORKS"]
+    }
+  ]
+  
