@@ -155,17 +155,24 @@ async function readDocumentText(filePath, originalFileName = null) {
 function loadKeywordsFromExcel() {
   try {
     if (!fs.existsSync(KEYWORDS_EXCEL_FILE)) {
-      console.warn(`Warning: Keywords Excel file not found: ${KEYWORDS_EXCEL_FILE}`);
+      console.error(`❌ ERROR: Keywords Excel file not found: ${KEYWORDS_EXCEL_FILE}`);
+      console.error(`   Please ensure the file exists in the same directory as the script.`);
       return [];
     }
 
+    console.log(`📊 Loading keywords from: ${KEYWORDS_EXCEL_FILE}`);
     const workbook = XLSX.readFile(KEYWORDS_EXCEL_FILE);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
 
     if (data.length === 0) {
-      console.warn("Warning: Excel file is empty or has no data");
+      console.error("❌ ERROR: Excel file is empty or has no data");
+      return [];
+    }
+    
+    if (data.length < 2) {
+      console.error("❌ ERROR: Excel file has no data rows (only header or empty)");
       return [];
     }
 
@@ -237,10 +244,17 @@ function loadKeywordsFromExcel() {
       });
     }
 
-    console.log(`Loaded ${keywords.length} keyword rules from Excel file`);
+    if (keywords.length === 0) {
+      console.error(`❌ ERROR: No valid keyword rules extracted from Excel file`);
+      console.error(`   Please check the Excel file format. Expected columns: Category, Keyword, Presence, etc.`);
+      return [];
+    }
+    
+    console.log(`✓ Successfully loaded ${keywords.length} keyword rules from Excel file`);
     return keywords;
   } catch (error) {
-    console.error(`Error loading keywords from Excel: ${error.message}`);
+    console.error(`❌ ERROR loading keywords from Excel: ${error.message}`);
+    console.error(`   Stack trace: ${error.stack}`);
     return [];
   }
 }
@@ -632,16 +646,60 @@ function missingTerms(text, requiredPatterns) {
 ----------------------------- */
 
 function buildRulesFromKeywords(keywords) {
+  // Always include original comprehensive rules
+  const originalRules = buildOriginalRules();
+  console.log(`✓ Loaded ${originalRules.length} original comprehensive rules`);
+  
   if (!keywords || keywords.length === 0) {
-    console.warn("No keywords loaded from Excel, using default rules");
-    return buildDefaultRules();
+    console.warn("⚠ No keywords loaded from Excel, using original rules only");
+    console.warn("⚠ Please ensure Tender_Keywords_56_Rows_FULL.xlsx exists and is properly formatted to add Excel-based rules.");
+    return originalRules;
   }
-  return keywords;
+  
+  console.log(`✓ Successfully loaded ${keywords.length} keyword rules from Excel`);
+  
+  // Log category distribution for Excel keywords
+  const categoryCounts = {};
+  keywords.forEach(k => {
+    categoryCounts[k.category] = (categoryCounts[k.category] || 0) + 1;
+  });
+  console.log(`✓ Excel category distribution:`, categoryCounts);
+  
+  // Merge: Combine original rules with Excel keywords
+  // Excel keywords take precedence if they have the same name, otherwise both are included
+  const mergedRules = [...originalRules];
+  const originalRuleNames = new Set(originalRules.map(r => r.name.toLowerCase()));
+  
+  let addedCount = 0;
+  let duplicateCount = 0;
+  
+  for (const excelRule of keywords) {
+    const excelRuleNameLower = excelRule.name.toLowerCase();
+    if (originalRuleNames.has(excelRuleNameLower)) {
+      // Excel rule with same name - replace original
+      const index = mergedRules.findIndex(r => r.name.toLowerCase() === excelRuleNameLower);
+      if (index >= 0) {
+        mergedRules[index] = excelRule;
+        duplicateCount++;
+      }
+    } else {
+      // New rule from Excel - add it
+      mergedRules.push(excelRule);
+      addedCount++;
+    }
+  }
+  
+  console.log(`✓ Merged rules: ${originalRules.length} original + ${addedCount} new from Excel`);
+  console.log(`✓ Replaced ${duplicateCount} original rules with Excel versions`);
+  console.log(`✓ Total rules for analysis: ${mergedRules.length}`);
+  
+  return mergedRules;
 }
 
-function buildDefaultRules() {
-  // Fallback default rules if Excel is empty
+function buildOriginalRules() {
+  // Original comprehensive hardcoded rules (from earlier code)
   return [
+    // Administrative
     {
       name: "Submission guidelines and proposal instructions",
       category: "Administrative",
@@ -657,7 +715,161 @@ function buildDefaultRules() {
       outdated_triggers: [],
       required: true,
     },
+    {
+      name: "Dispute resolution and governing law",
+      category: "Administrative",
+      where: ["Instructions to Vendor", "FULL"],
+      presence: [String.raw`Dispute Resolution`, String.raw`Governing Law`],
+      quality_requires: [String.raw`courts`, String.raw`laws of UAE`],
+      unclear_triggers: [],
+      outdated_triggers: [],
+      required: true,
+    },
+
+    // Governance
+    {
+      name: "Governance structure with roles and responsibilities",
+      category: "Governance",
+      where: ["Proposal Guidelines", "Rules, Assumptions", "FULL"],
+      presence: [
+        String.raw`roles and responsibilities`,
+        String.raw`Program governance`,
+        String.raw`steering`,
+        String.raw`oversight`,
+      ],
+      quality_requires: [String.raw`matrix`, String.raw`stakeholder|stakeholders`],
+      unclear_triggers: [String.raw`as required`, String.raw`as needed`, String.raw`to be agreed`],
+      outdated_triggers: [],
+      required: true,
+    },
+
+    // Technical
+    {
+      name: "Solution architecture / system landscape",
+      category: "Technical",
+      where: ["System Landscape", "Scope of Work", "FULL"],
+      presence: [String.raw`System Landscape`, String.raw`solution architecture`, String.raw`servers`, String.raw`operating systems`],
+      quality_requires: [String.raw`availability`, String.raw`redundancy|failover`, String.raw`version`],
+      unclear_triggers: [String.raw`optimum configuration`, String.raw`as.*recommended`],
+      outdated_triggers: [],
+      required: true,
+    },
+    {
+      name: "Cybersecurity and information security requirements",
+      category: "Technical",
+      where: ["System Landscape", "Scope of Work", "FULL"],
+      presence: [String.raw`Information Security`, String.raw`Security`, String.raw`role-based`, String.raw`authentication`],
+      quality_requires: [String.raw`access`, String.raw`controls`, String.raw`auditing|audit`],
+      unclear_triggers: [String.raw`must propose`, String.raw`ensure`],
+      outdated_triggers: [String.raw`Exchange\s2010`, String.raw`FileNet\sP8\s*5\.0`],
+      required: true,
+    },
+    {
+      name: "Data migration / conversion plan",
+      category: "Technical",
+      where: ["Scope of Work", "FULL"],
+      presence: [String.raw`Data Conversion`, String.raw`data migration`, String.raw`migrate.*5 years`],
+      quality_requires: [String.raw`validation`, String.raw`verification`, String.raw`plan`],
+      unclear_triggers: [String.raw`will be reviewed`, String.raw`recommend`],
+      outdated_triggers: [],
+      required: true,
+    },
+    {
+      name: "Testing strategy (UT/UAT/Integration/Stress/Security)",
+      category: "Technical",
+      where: ["Scope of Work", "FULL"],
+      presence: [String.raw`Testing`, String.raw`UAT`, String.raw`Stress testing`, String.raw`Security testing`],
+      quality_requires: [String.raw`Unit Testing`, String.raw`Integration Testing`, String.raw`User Acceptance Testing`],
+      unclear_triggers: [],
+      outdated_triggers: [],
+      required: true,
+    },
+
+    // Integration
+    {
+      name: "Integration requirements with existing systems",
+      category: "Integration",
+      where: ["Scope of Work", "FULL"],
+      presence: [String.raw`Interfaces`, String.raw`integration`, String.raw`bidirectional`, String.raw`web service`, String.raw`SAP HCM`, String.raw`FileNet`],
+      quality_requires: [String.raw`mechanism`, String.raw`interface`, String.raw`systems`],
+      unclear_triggers: [String.raw`to be identified`, String.raw`will be identified`],
+      outdated_triggers: [String.raw`Exchange\s*2010`],
+      required: true,
+    },
+
+    // Support/SLA
+    {
+      name: "Support plan and SLA (response/resolution, severity, hours, windows)",
+      category: "Support/SLA",
+      where: ["Scope of Work", "FULL"],
+      presence: [String.raw`Support Plan`, String.raw`SLA`, String.raw`Help Desk`, String.raw`Support Hours`],
+      quality_requires: [String.raw`Severity`, String.raw`Response`, String.raw`Resolution`, String.raw`Maintenance Windows`],
+      unclear_triggers: [String.raw`may be required`, String.raw`rate card`],
+      outdated_triggers: [],
+      required: true,
+    },
+
+    // Financial
+    {
+      name: "Commercial proposal and detailed pricing",
+      category: "Financial",
+      where: ["Proposal Guidelines", "Award of Contract", "FULL"],
+      presence: [String.raw`Commercial Proposal`, String.raw`Price Schedule`, String.raw`UAE Dirhams`],
+      quality_requires: [String.raw`fixed price`, String.raw`all costs`, String.raw`taxes|duties`],
+      unclear_triggers: [],
+      outdated_triggers: [],
+      required: true,
+    },
+    {
+      name: "TCO / total cost of ownership",
+      category: "Financial",
+      where: ["FULL"],
+      presence: [String.raw`Total cost of ownership|TCO`],
+      quality_requires: [],
+      unclear_triggers: [],
+      outdated_triggers: [],
+      required: false,
+    },
+    {
+      name: "Penalties / liquidated damages for delay",
+      category: "Financial",
+      where: ["Rules, Assumptions", "FULL"],
+      presence: [String.raw`Delay Penalties`, String.raw`delay fee`, String.raw`not to exceed`],
+      quality_requires: [String.raw`2000`, String.raw`10%`],
+      unclear_triggers: [],
+      outdated_triggers: [],
+      required: true,
+    },
+
+    // Risk Management (optional)
+    {
+      name: "Risk management framework (scoring, ERM, mitigation)",
+      category: "Risk Management",
+      where: ["Proposal Guidelines", "Rules, Assumptions", "FULL"],
+      presence: [String.raw`Risk Management`, String.raw`risk identification`, String.raw`mitigation`],
+      quality_requires: [String.raw`scoring|risk scoring|risk register`],
+      unclear_triggers: [],
+      outdated_triggers: [],
+      required: false,
+    },
+
+    // KPI & Performance (optional)
+    {
+      name: "KPIs and vendor performance measurement",
+      category: "KPI & Performance",
+      where: ["Scope of Work", "FULL"],
+      presence: [String.raw`\bKPI\b`, String.raw`Key Performance`, String.raw`dashboards`],
+      quality_requires: [String.raw`measurement`, String.raw`baseline`, String.raw`post-implementation`],
+      unclear_triggers: [],
+      outdated_triggers: [],
+      required: false,
+    },
   ];
+}
+
+function buildDefaultRules() {
+  // Fallback to original rules if Excel is empty
+  return buildOriginalRules();
 }
 
 /* -----------------------------
@@ -687,17 +899,37 @@ async function analyze(filePath, providedDepartment = null, providedCategory = n
   const keywords = loadKeywordsFromExcel();
   const rules = buildRulesFromKeywords(keywords);
 
-  // Filter rules by category if provided
+  // Filter rules by gap category if provided (note: this is gap category, not tender category)
+  // Valid gap categories: Administrative, Technical, Financial, Support/SLA, Compliance, 
+  // Governance, Risk Management, Integration, KPI & Performance
   let filteredRules = rules;
   if (providedCategory) {
-    filteredRules = rules.filter(r => 
-      r.category.toLowerCase() === providedCategory.toLowerCase()
-    );
-    if (filteredRules.length === 0) {
-      console.warn(`No rules found for category: ${providedCategory}, using all rules`);
+    // Normalize the provided category
+    const normalizedCategory = providedCategory.trim();
+    
+    // Check if it's a valid gap category
+    const validGapCategories = GAP_CATEGORIES.map(c => c.toLowerCase());
+    const isValidGapCategory = validGapCategories.includes(normalizedCategory.toLowerCase());
+    
+    if (isValidGapCategory) {
+      filteredRules = rules.filter(r => 
+        r.category.toLowerCase() === normalizedCategory.toLowerCase()
+      );
+      console.log(`Filtered to ${filteredRules.length} rules for gap category: ${normalizedCategory}`);
+      
+      if (filteredRules.length === 0) {
+        console.warn(`No rules found for gap category: ${normalizedCategory}, using all rules`);
+        filteredRules = rules;
+      }
+    } else {
+      // If it's not a valid gap category (e.g., "Works", "Services" - tender categories),
+      // use all rules and log a warning
+      console.warn(`Provided category "${providedCategory}" is not a valid gap category. Valid gap categories are: ${GAP_CATEGORIES.join(", ")}. Using all rules.`);
       filteredRules = rules;
     }
   }
+  
+  console.log(`Using ${filteredRules.length} rules for analysis (total available: ${rules.length})`);
 
   function getScopeText(rule) {
     const chunks = [];
@@ -844,10 +1076,32 @@ async function analyze(filePath, providedDepartment = null, providedCategory = n
   const finalize = (arr) => (arr.length ? arr : [NI]);
 
   let enhancedRecommendations = recommendations;
-  if (OLLAMA_ENABLED && Object.values(recommendations).some(recs => recs.length > 0)) {
-    console.log("Enhancing recommendations with AI validation...");
-    enhancedRecommendations = await enhanceRecommendationsWithAI(recommendations, gapCategories, documentInfo);
+  const totalRecsBefore = Object.values(recommendations).reduce((sum, recs) => sum + recs.length, 0);
+  
+  if (OLLAMA_ENABLED && totalRecsBefore > 0) {
+    console.log(`🤖 Enhancing ${totalRecsBefore} recommendations with AI validation...`);
+    try {
+      enhancedRecommendations = await enhanceRecommendationsWithAI(recommendations, gapCategories, documentInfo);
+      const totalRecsAfter = Object.values(enhancedRecommendations).reduce((sum, recs) => sum + recs.length, 0);
+      console.log(`✓ AI enhancement complete. ${totalRecsAfter} recommendations ready.`);
+    } catch (error) {
+      console.error(`⚠ AI enhancement failed: ${error.message}. Using original recommendations.`);
+    }
+  } else if (!OLLAMA_ENABLED) {
+    console.log(`⚠ AI enhancement disabled. Using basic recommendations.`);
   }
+
+  // Log summary
+  const totalGaps = Object.values(gapCategories).reduce((sum, gaps) => sum + gaps.length, 0);
+  const totalRecs = Object.values(enhancedRecommendations).reduce((sum, recs) => sum + recs.length, 0);
+  console.log(`\n📊 Analysis Summary:`);
+  console.log(`   Overall Score: ${overallScore}/100`);
+  console.log(`   Total Gaps Found: ${totalGaps}`);
+  console.log(`   Total Recommendations: ${totalRecs}`);
+  console.log(`   Missing Sections: ${missingSections.length}`);
+  console.log(`   Weak Sections: ${weakSections.length}`);
+  console.log(`   Unclear Sections: ${unclearSections.length}`);
+  console.log(`   Outdated Content: ${outdatedContent.length}\n`);
 
   return {
     documentInfo: documentInfo,
@@ -887,11 +1141,17 @@ app.post("/analyze", upload.single("document"), async (req, res) => {
 
     const { department, category } = req.body;
 
-    console.log(`Processing file: ${req.file.originalname}`);
-    console.log(`Department: ${department || "auto-detect"}`);
-    console.log(`Category: ${category || "all"}`);
+    console.log(`\n📄 Processing file: ${req.file.originalname}`);
+    console.log(`📋 Department: ${department || "auto-detect"}`);
+    console.log(`🏷️  Gap Category filter: ${category || "all (no filter)"}`);
+    console.log(`   Note: Category should be a gap category (Administrative, Technical, Financial, etc.), not a tender category (Works, Services, etc.)`);
 
     const result = await analyze(req.file.path, department || null, category || null, req.file.originalname);
+    
+    console.log(`✓ Analysis complete. Score: ${result.completenessAssessment.overallScore}`);
+    console.log(`  Missing sections: ${result.completenessAssessment.missingSections.filter(s => s !== NI).length}`);
+    console.log(`  Weak sections: ${result.completenessAssessment.weakSections.filter(s => s !== NI).length}`);
+    console.log(`  Unclear sections: ${result.completenessAssessment.unclearSections.filter(s => s !== NI).length}`);
 
     // Clean up uploaded file
     fs.unlinkSync(req.file.path);
