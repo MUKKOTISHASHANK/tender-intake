@@ -7,6 +7,7 @@ import { loadKeywordsFromExcel } from "../services/keywordRulesService.js";
 import { extractArtifactsFromPdf } from "../services/artifactExtractionService.js";
 import { extractRfpEvaluation } from "../services/rfpEvaluationService.js";
 import { extractTenderMatrix } from "../services/tenderMatrixExtractionService.js";
+import { extractTenderOverview } from "../services/tenderOverviewExtractionService.js";
 
 // Optional import for tender extraction service - will be loaded dynamically
 let extractTender = null;
@@ -385,6 +386,62 @@ router.post("/extract-matrix", upload.single("document"), async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message || "An error occurred during matrix extraction",
+    });
+  }
+});
+
+// POST /extract-tender-overview
+router.post("/extract-tender-overview", upload.single("document"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file uploaded. Please provide a 'document' file.",
+      });
+    }
+
+    const departmentName = req.body.departmentName || req.body.department || req.body.dept || null;
+    const rfpTitle = req.body.rfpTitle || req.body.title || req.body.rfp_title || null;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    
+    if (![".pdf", ".docx", ".doc", ".txt"].includes(ext)) {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({
+        success: false,
+        error: "Unsupported file format. Supported formats: .pdf, .docx, .doc, .txt",
+      });
+    }
+
+    console.log(`\n📄 Extracting tender overview from: ${req.file.originalname}`);
+    console.log(`🏢 Department: ${departmentName || "Not provided"}`);
+    console.log(`📋 RFP Title: ${rfpTitle || "Not provided"}`);
+
+    const result = await extractTenderOverview({
+      filePath: req.file.path,
+      departmentName,
+      rfpTitle,
+      originalFileName: req.file.originalname,
+    });
+
+    console.log(`✓ Tender overview extraction complete`);
+
+    // Clean up uploaded file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    return res.json(result);
+  } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    console.error("Tender overview extraction error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "An error occurred during tender overview extraction",
     });
   }
 });
