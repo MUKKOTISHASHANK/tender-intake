@@ -185,3 +185,4 @@ Expected columns (case-insensitive):
 - Supported file formats: .pdf, .docx, .doc
 - If the Excel file is not found or empty, default rules will be used
 - If `department` or `category` is not provided, they will be auto-detected from the document
+# tender-intake
