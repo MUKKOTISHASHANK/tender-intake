@@ -4,6 +4,8 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "start": "node tender-gap-analyzer.js",
+    "dev": "node tender-gap-analyzer.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
