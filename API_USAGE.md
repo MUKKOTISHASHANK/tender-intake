@@ -41,7 +41,18 @@ Analyze a tender document for gaps.
 - **Body:**
   - `document` (file, required): The tender document file (.pdf, .docx, or .doc)
   - `department` (string, optional): Department name (e.g., "Public Services Department")
-  - `category` (string, optional): Category to filter rules (e.g., "Administrative", "Technical")
+  - `category` (string, optional): **Gap category** to filter rules. Valid values:
+    - `Administrative`
+    - `Technical`
+    - `Financial`
+    - `Support/SLA`
+    - `Compliance`
+    - `Governance`
+    - `Risk Management`
+    - `Integration`
+    - `KPI & Performance`
+    
+    **Note:** This is NOT a tender category (like "Works", "Services", "Supplies", "Consultancy"). If you provide an invalid gap category or a tender category, all rules will be used for comprehensive analysis.
 
 **Example using curl:**
 ```bash
